@@ -1,0 +1,293 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Live Raffle</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@500;700;800&display=swap" rel="stylesheet">
+<style>
+  :root{--gold:#ffc61a}
+  body{font-family:'Bricolage Grotesque',system-ui,sans-serif;background:radial-gradient(circle at 15% 10%,#4b1fa8 0,transparent 45%),radial-gradient(circle at 90% 90%,#1746c9 0,transparent 50%),linear-gradient(135deg,#1a0b3d,#0d1b5e);min-height:100vh;color:#fff}
+  .glass{background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.15);backdrop-filter:blur(8px)}
+  .gold-btn{background:linear-gradient(180deg,#ffe066,var(--gold));color:#2a1260;box-shadow:0 6px 0 #c48f00,0 12px 30px rgba(255,198,26,.35);transition:transform .1s,box-shadow .1s}
+  .gold-btn:hover:not(:disabled){transform:translateY(2px);box-shadow:0 4px 0 #c48f00}
+  .gold-btn:active:not(:disabled){transform:translateY(6px);box-shadow:0 0 0 #c48f00}
+  .gold-btn:disabled{opacity:.45;cursor:not-allowed}
+  .pop{animation:pop .5s cubic-bezier(.2,1.6,.4,1)}
+  @keyframes pop{0%{transform:scale(.3);opacity:0}100%{transform:none;opacity:1}}
+  .bump{animation:bump .5s}
+  @keyframes bump{40%{transform:scale(1.25);color:var(--gold)}}
+  input:focus,button:focus-visible{outline:3px solid var(--gold);outline-offset:2px}
+  @media (prefers-reduced-motion:reduce){*{animation:none!important}}
+</style>
+</head>
+<body>
+
+<!-- ================= PARTICIPANT VIEW ================= -->
+<main id="user" class="hidden min-h-screen flex-col items-center p-5 text-center">
+  <h1 class="text-3xl font-extrabold mt-2">Live Raffle</h1>
+
+  <form id="uForm" class="w-full max-w-sm flex flex-col gap-3 mt-8">
+    <p class="text-xl text-purple-100 font-bold">Enter your name to join</p>
+    <input id="uName" maxlength="24" required placeholder="Your Name" autocomplete="name" class="rounded-xl px-4 py-4 text-xl text-purple-950 font-bold">
+    <button class="gold-btn rounded-xl py-4 text-xl font-extrabold">Join</button>
+  </form>
+
+  <p id="uClosed" class="hidden mt-10 text-xl font-bold text-yellow-300">A spin is under way. Sign-ups are closed for this round.</p>
+
+  <div id="uLive" class="hidden w-full max-w-sm flex-col items-center">
+    <p id="uConfirm" class="glass rounded-2xl px-4 py-3 mt-6 font-bold text-lg">You are registered! Watch the main screen or your phone.</p>
+    <p class="mt-4 text-purple-200"><span id="uCount" class="text-3xl font-extrabold text-yellow-300">0</span> players</p>
+  </div>
+
+  <div id="uWheelBox" class="hidden w-full max-w-sm mt-4">
+    <div class="relative aspect-square">
+      <div class="absolute left-1/2 -top-1 -translate-x-1/2 z-10 w-0 h-0" style="border-left:14px solid transparent;border-right:14px solid transparent;border-top:32px solid var(--gold)"></div>
+      <canvas id="uWheel" class="w-full h-full"></canvas>
+    </div>
+    <div id="uWinner" class="hidden pop glass rounded-2xl p-5 mt-5">
+      <p class="text-purple-200 font-bold">Winner</p>
+      <p id="uWinnerName" class="text-4xl font-extrabold text-yellow-300 break-words"></p>
+      <p id="uWinnerMe" class="hidden mt-2 font-bold">That's you! Find the host to claim your prize.</p>
+    </div>
+  </div>
+</main>
+
+<!-- ================= ADMIN VIEW ================= -->
+<div id="admin" class="hidden min-h-screen grid lg:grid-cols-[minmax(320px,2fr)_3fr] gap-6 p-6">
+  <section class="glass rounded-3xl p-7 flex flex-col items-center text-center">
+    <h1 class="text-3xl xl:text-4xl font-extrabold leading-tight">Scan the QR code to enter your name in the raffle</h1>
+    <div class="bg-white p-4 rounded-3xl my-5 shadow-[0_0_60px_rgba(255,198,26,.35)]"><div id="qr"></div></div>
+    <p id="urlLine" class="text-xs text-purple-300 break-all max-w-sm"></p>
+    <div class="mt-4"><span id="aCount" class="text-6xl font-extrabold text-yellow-300">0</span><span class="text-xl text-purple-200 ml-2">joined</span></div>
+    <ul id="aList" class="flex flex-wrap justify-center gap-2 mt-3 max-h-32 overflow-y-auto w-full"></ul>
+    <button id="aSpin" disabled class="gold-btn rounded-2xl px-10 py-4 mt-5 text-3xl font-extrabold">Spin Wheel</button>
+    <p id="aState" class="mt-3 text-sm text-purple-200 min-h-[1.25rem]"></p>
+    <div class="flex gap-5 mt-2 text-sm text-purple-300">
+      <button id="aSample" class="underline hover:text-white">Add 5 Sample Names</button>
+      <button id="aClear" class="underline hover:text-white">Clear all</button>
+    </div>
+  </section>
+
+  <section class="glass rounded-3xl p-6 flex items-center justify-center">
+    <div class="relative w-full max-w-[680px] aspect-square">
+      <div class="absolute left-1/2 -top-1 -translate-x-1/2 z-10 w-0 h-0 drop-shadow-lg" style="border-left:22px solid transparent;border-right:22px solid transparent;border-top:48px solid var(--gold)"></div>
+      <canvas id="aWheel" class="w-full h-full"></canvas>
+      <div id="aHolder" class="absolute inset-[9%] rounded-full flex items-center justify-center text-center p-10 text-2xl font-bold text-purple-100 bg-[#1a0b3d]/90 border-4 border-dashed border-purple-400/60"></div>
+    </div>
+  </section>
+</div>
+
+<div id="modal" class="hidden fixed inset-0 z-40 items-center justify-center bg-black/70 p-6">
+  <div class="pop glass rounded-3xl p-10 text-center max-w-lg w-full" style="background:linear-gradient(160deg,#4b1fa8,#0d1b5e)">
+    <p class="text-2xl text-purple-200 font-bold">And the winner is</p>
+    <h2 id="mWinner" class="text-6xl font-extrabold text-yellow-300 my-5 break-words"></h2>
+    <div class="flex flex-col sm:flex-row gap-3 justify-center mt-6">
+      <button id="mRemove" class="gold-btn rounded-xl px-6 py-3 text-lg font-extrabold">Remove winner</button>
+      <button id="mReset" class="rounded-xl px-6 py-3 text-lg font-bold border-2 border-white/40 hover:bg-white/10">Reset wheel</button>
+    </div>
+  </div>
+</div>
+<canvas id="confetti" class="fixed inset-0 z-50 pointer-events-none"></canvas>
+
+<script>
+(() => {
+  const $ = id => document.getElementById(id);
+  const KEY = 'raffle_state_v2', TAU = Math.PI*2, DUR = 5000;
+  const COLORS = ['#7c3aed','#2563eb','#ffc61a','#ec4899','#06b6d4','#f97316','#8b5cf6','#3b82f6'];
+  const DARKTXT = ['#ffc61a','#06b6d4','#f97316'];
+  const SAMPLES = ['Ana','Mateo','Sofía','Lucas','Valentina','Diego','Camila','Bruno','Lucía','Nico','Martina','Andrés'];
+  const role = new URLSearchParams(location.search).get('role') === 'admin' ? 'admin' : 'user';
+  const isAdmin = role === 'admin';
+
+  // ---------- shared state (localStorage) ----------
+  const fresh = () => ({names:[], locked:false, spin:null});
+  const read = () => { try { return JSON.parse(localStorage.getItem(KEY)) || fresh(); } catch(e){ return fresh(); } };
+  let state = read(), lastRaw = localStorage.getItem(KEY) || '';
+  function commit(fn){                       // read-modify-write, then apply locally
+    const s = read(); fn(s);
+    const raw = JSON.stringify(s);
+    try { localStorage.setItem(KEY, raw); } catch(e){}
+    lastRaw = raw; apply(s);
+  }
+  addEventListener('storage', e => { if (e.key === KEY) pull(); });
+  setInterval(pull, 1000);                    // safety net if a browser skips storage events
+  function pull(){ const raw = localStorage.getItem(KEY) || ''; if (raw !== lastRaw){ lastRaw = raw; apply(read()); } }
+
+  // ---------- wheel ----------
+  let weights = [], rest = 0, wheelCv, wheelCtx, animRaf = 0;
+  function drawWheel(rot){
+    const cv = wheelCv, ctx = wheelCtx, W = cv.width, c = W/2, R = c*0.93, names = state.names;
+    ctx.clearRect(0,0,W,W); ctx.save(); ctx.translate(c,c);
+    ctx.beginPath(); ctx.arc(0,0,R+W*0.02,0,7); ctx.fillStyle = '#ffc61a'; ctx.fill();
+    if (names.length >= 2){
+      const total = weights.reduce((a,b)=>a+b,0) || 1; let ang = rot;
+      names.forEach((nm,i) => {
+        const a = TAU*weights[i]/total; if (a <= 0.0001){ return; }
+        let col = COLORS[i % COLORS.length];
+        if (i === names.length-1 && i % COLORS.length === 0 && i > 0) col = '#ec4899';
+        ctx.beginPath(); ctx.moveTo(0,0); ctx.arc(0,0,R,ang,ang+a); ctx.closePath();
+        ctx.fillStyle = col; ctx.fill(); ctx.strokeStyle = 'rgba(255,255,255,.55)'; ctx.lineWidth = 2; ctx.stroke();
+        ctx.save(); ctx.rotate(ang+a/2); ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
+        ctx.fillStyle = DARKTXT.includes(col) ? '#2a1260' : '#fff';
+        const fs = Math.max(W*0.03, Math.min(W*0.06, R*a*0.42));
+        ctx.font = `800 ${fs}px 'Bricolage Grotesque',sans-serif`;
+        let t = nm; while (ctx.measureText(t).width > R*0.7 && t.length > 3) t = t.slice(0,-2);
+        if (t !== nm) t += '…';
+        ctx.fillText(t, R*0.92, 0); ctx.restore(); ang += a;
+      });
+    } else { ctx.beginPath(); ctx.arc(0,0,R,0,7); ctx.fillStyle = '#2b1670'; ctx.fill(); }
+    ctx.beginPath(); ctx.arc(0,0,W*0.06,0,7); ctx.fillStyle = '#ffc61a'; ctx.fill();
+    ctx.lineWidth = W*0.012; ctx.strokeStyle = '#2a1260'; ctx.stroke(); ctx.restore();
+  }
+  function sizeWheel(){ const r = wheelCv.getBoundingClientRect(), d = devicePixelRatio||1; wheelCv.width = r.width*d; wheelCv.height = r.height*d; drawWheel(currentRot()); }
+  function currentRot(){
+    const sp = state.spin; if (!sp) return 0;
+    const p = Math.max(0, Math.min(1, (Date.now()-sp.t0)/DUR));
+    return sp.to * (1 - Math.pow(1-p, 4));
+  }
+
+  // ---------- apply state ----------
+  let shownSpin = null, prevLen = -1, prevNames = '';
+  function apply(s){
+    state = s;
+    const joined = state.names.length;
+    // weights for grow-in animation
+    if (state.spin) weights = state.names.map(()=>1);
+    else if (joined === prevLen+1 && prevLen >= 0 && state.names.slice(0,prevLen).join('|') === prevNames) weights = weights.slice(0,prevLen).concat(0);
+    else if (joined !== weights.length || state.names.join('|') !== prevNames && joined <= prevLen) weights = state.names.map(()=>1);
+    prevLen = joined; prevNames = state.names.join('|');
+    growLoop();
+    isAdmin ? renderAdmin() : renderUser();
+    if (state.spin && shownSpin !== state.spin.id) runSpin(state.spin);
+    if (!state.spin){ shownSpin = null; hideResult(); }
+    drawWheel(currentRot());
+  }
+  function growLoop(){
+    cancelAnimationFrame(animRaf);
+    (function step(){
+      let busy = false;
+      weights = weights.map(w => { if (w < 1){ busy = true; return Math.min(1, w + 0.06); } return w; });
+      if (!state.spin) drawWheel(0);
+      if (busy) animRaf = requestAnimationFrame(step);
+    })();
+  }
+  function runSpin(sp){
+    shownSpin = sp.id;
+    (function tick(){
+      if (!state.spin || state.spin.id !== sp.id) return;
+      drawWheel(currentRot());
+      if (Date.now() < sp.t0 + DUR) requestAnimationFrame(tick);
+      else { drawWheel(sp.to); showResult(sp, Date.now() - (sp.t0+DUR) < 2500); }
+    })();
+  }
+
+  // ---------- confetti ----------
+  const fc = $('confetti'), fx = fc.getContext('2d'); let bits = [], craf;
+  function burst(){
+    fc.width = innerWidth; fc.height = innerHeight;
+    const cols = ['#ffc61a','#ffe066','#ff4fa3','#7c3aed','#3b82f6','#fff'];
+    for (let i=0;i<200;i++){ const L = i%2;
+      bits.push({x:L?0:fc.width,y:fc.height*.75,vx:(L?1:-1)*(5+Math.random()*11),vy:-(10+Math.random()*15),
+        w:6+Math.random()*8,h:10+Math.random()*10,r:Math.random()*6,vr:(Math.random()-.5)*.4,c:cols[i%6],life:0}); }
+    cancelAnimationFrame(craf); (function loop(){
+      fx.clearRect(0,0,fc.width,fc.height);
+      bits.forEach(b => { b.vy += .35; b.vx *= .99; b.x += b.vx; b.y += b.vy; b.r += b.vr; b.life++;
+        fx.save(); fx.translate(b.x,b.y); fx.rotate(b.r); fx.fillStyle = b.c; fx.fillRect(-b.w/2,-b.h/2,b.w,b.h); fx.restore(); });
+      bits = bits.filter(b => b.y < fc.height+30 && b.life < 300);
+      if (bits.length) craf = requestAnimationFrame(loop); else fx.clearRect(0,0,fc.width,fc.height);
+    })();
+  }
+
+  // ---------- helpers ----------
+  const clean = n => (n||'').trim().slice(0,24);
+  function addName(n){ n = clean(n); if (!n) return false; let ok = false;
+    commit(s => { if (!s.locked && !s.spin){ s.names.push(n); ok = true; } }); return ok; }
+
+  // ================= ADMIN =================
+  if (isAdmin){
+    $('admin').classList.remove('hidden');
+    wheelCv = $('aWheel'); wheelCtx = wheelCv.getContext('2d');
+    const base = location.href.split('#')[0].split('?')[0];
+    const joinUrl = base + '?role=user';
+    new QRCode($('qr'), {text: joinUrl, width: 280, height: 280, colorDark:'#1a0b3d', colorLight:'#fff', correctLevel: QRCode.CorrectLevel.M});
+    $('urlLine').textContent = joinUrl;
+    let lastCount = -1;
+    window.renderAdmin = function(){
+      const n = state.names, ul = $('aList');
+      ul.innerHTML = '';
+      n.forEach((nm,i) => { const li = document.createElement('li');
+        li.className = 'rounded-full px-3 py-1 font-bold text-sm text-white' + (i === n.length-1 && n.length > lastCount && lastCount >= 0 ? ' pop' : '');
+        li.style.background = COLORS[i % COLORS.length]; if (DARKTXT.includes(COLORS[i % COLORS.length])) li.style.color = '#2a1260';
+        li.textContent = nm; ul.append(li); });
+      const c = $('aCount'); if (n.length !== lastCount){ c.textContent = n.length; c.classList.remove('bump'); void c.offsetWidth; c.classList.add('bump'); }
+      lastCount = n.length;
+      const few = n.length < 2, busy = !!state.spin;
+      $('aSpin').disabled = few || busy; $('aSample').disabled = busy;
+      $('aHolder').style.display = few ? 'flex' : 'none';
+      $('aHolder').textContent = n.length ? 'Need at least 2 people to spin. Keep scanning!' : 'Waiting for players… scan the QR code to join!';
+      $('aState').textContent = busy ? 'Sign-ups locked while the wheel spins.' : '';
+    };
+    $('aSpin').onclick = () => {
+      commit(s => {
+        if (s.names.length < 2 || s.spin) return;
+        const n = s.names.length, a = TAU/n, idx = Math.floor(Math.random()*n), jitter = (Math.random()-.5)*a*.7;
+        s.locked = true;
+        s.spin = {id: Date.now(), t0: Date.now()+200, idx, winner: s.names[idx],
+                  to: (-Math.PI/2 - (idx+.5)*a + jitter) + TAU*(6 + Math.floor(Math.random()*2))};
+      });
+    };
+    $('aSample').onclick = () => {
+      const pool = SAMPLES.filter(x => !state.names.includes(x)); const src = pool.length >= 5 ? pool : SAMPLES;
+      src.slice().sort(()=>Math.random()-.5).slice(0,5).forEach((x,i) => setTimeout(() => addName(x), i*250));
+    };
+    $('aClear').onclick = () => { if (!state.spin) commit(s => { s.names = []; s.locked = false; s.spin = null; }); };
+    window.showResult = (sp, fresh) => {
+      $('mWinner').textContent = sp.winner; $('modal').classList.remove('hidden'); $('modal').classList.add('flex');
+      if (fresh) burst();
+    };
+    window.hideResult = () => { $('modal').classList.add('hidden'); $('modal').classList.remove('flex'); };
+    $('mRemove').onclick = () => commit(s => { if (s.spin){ s.names.splice(s.spin.idx,1); } s.spin = null; s.locked = false; });
+    $('mReset').onclick = () => commit(s => { s.spin = null; s.locked = false; });
+  }
+
+  // ================= PARTICIPANT =================
+  else {
+    $('user').classList.remove('hidden'); $('user').classList.add('flex');
+    wheelCv = $('uWheel'); wheelCtx = wheelCv.getContext('2d');
+    let me = null; try { me = sessionStorage.getItem('raffle_me'); } catch(e){}
+    $('uForm').addEventListener('submit', e => {
+      e.preventDefault(); const n = clean($('uName').value); if (!n) return;
+      if (addName(n)){ me = n; try { sessionStorage.setItem('raffle_me', n); } catch(e){} apply(state); }
+      else apply(state);
+    });
+    window.renderUser = function(){
+      const registered = me && state.names.includes(me);
+      if (me && !registered && !state.spin) { me = null; try { sessionStorage.removeItem('raffle_me'); } catch(e){} }
+      const reg = me && (registered || state.spin);
+      const closed = !reg && (state.locked || state.spin);
+      $('uForm').classList.toggle('hidden', !!(reg || closed));
+      $('uClosed').classList.toggle('hidden', !closed);
+      $('uLive').classList.toggle('hidden', !reg); $('uLive').classList.toggle('flex', !!reg);
+      $('uWheelBox').classList.toggle('hidden', !(reg || closed));
+      $('uCount').textContent = state.names.length;
+      if (registered && !state.spin) $('uConfirm').textContent = 'You are registered! Watch the main screen or your phone.';
+      if (!closed && !reg) $('uWheelBox').classList.add('hidden');
+      if (!$('uWheelBox').classList.contains('hidden')) requestAnimationFrame(sizeWheel);
+    };
+    window.showResult = (sp, fresh) => {
+      $('uWinnerName').textContent = sp.winner; $('uWinner').classList.remove('hidden');
+      $('uWinnerMe').classList.toggle('hidden', sp.winner !== me);
+      $('uConfirm').textContent = 'The spin is done!'; if (fresh) burst();
+    };
+    window.hideResult = () => $('uWinner').classList.add('hidden');
+  }
+
+  addEventListener('resize', () => wheelCv && sizeWheel());
+  apply(state); sizeWheel();
+})();
+</script>
+</body>
+</html>
